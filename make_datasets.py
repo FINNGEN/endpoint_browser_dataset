@@ -1,6 +1,7 @@
 import argparse
 import csv
 import json
+from math import isnan
 from pathlib import Path
 
 
@@ -12,8 +13,10 @@ def main():
 
     info = gather_info(
         args.definitions,
+        args.basic_stats,
         args.metaresults_ukbb,
-        args.metaresults_est
+        args.metaresults_est,
+        args.genetic_correlations
     )
     output_info(info, path_out_info)
 
@@ -34,6 +37,12 @@ def init_cli():
     parser.add_argument(
         "-d", "--definitions",
         help="path to FinnGen case and control endpoint definitions (CSV)",
+        required=True,
+        type=Path
+    )
+    parser.add_argument(
+        "-b", "--basic-stats",
+        help="path to FinnGen Risteys basic stats (JSON)",
         required=True,
         type=Path
     )
@@ -63,6 +72,12 @@ def init_cli():
         type=Path
     )
     parser.add_argument(
+        "-g", "--genetic-correlations",
+        help="path to the FinnGen genetic correlations (CSV)",
+        required=True,
+        type=Path
+    )
+    parser.add_argument(
         "-o", "--output-dir",
         help="path to output directory",
         required=True,
@@ -74,7 +89,13 @@ def init_cli():
     return args
 
 
-def gather_info(path_definitions, path_meta_ukbb, path_meta_est):
+def gather_info(
+        path_definitions,
+        path_basic_stats,
+        path_meta_ukbb,
+        path_meta_est,
+        path_genetic_correlations
+):
     endpoints = {}
 
     with open(path_definitions) as fd:
@@ -93,10 +114,35 @@ def gather_info(path_definitions, path_meta_ukbb, path_meta_est):
                 "est_meta_analysed": "no"
             }
 
+    set_ncases(endpoints, path_basic_stats)
+
     set_meta_analysis(endpoints, "uk_meta_analysed", path_meta_ukbb)
     set_meta_analysis(endpoints, "est_meta_analysed", path_meta_est)
 
+    gws_hits = get_gws_hits(path_genetic_correlations)
+    for endpoint in endpoints:
+        hits = gws_hits.get(endpoint)
+        endpoints[endpoint]["gwas_hits"] = hits
+
     return endpoints
+
+
+def set_ncases(endpoints, path_stats):
+    with open(path_stats) as fd:
+        stats = json.load(fd)
+
+    for endpoint, data in stats["stats"].items():
+        n_cases = {
+            "n_cases_all": data["nindivs_all"],
+            "n_cases_female": data["nindivs_female"],
+            "n_cases_male": data["nindivs_male"]
+        }
+
+        # Check for individual-level data
+        for nn in n_cases.values():
+            assert nn is None or isnan(nn) or nn == 0 or nn >= 5, f"FAIL individual-level data detected: {nn=} in {n_cases=} for {endpoint=}"
+
+        endpoints[endpoint].update(n_cases)
 
 
 def set_meta_analysis(endpoints, name_meta, path_meta):
@@ -122,6 +168,20 @@ def get_core_endpoints(info):
             cores.add(endpoint)
 
     return cores
+
+def get_gws_hits(path):
+    gws_hits = {}
+
+    with open(path) as fd:
+        reader = csv.DictReader(fd)
+
+        for row in reader:
+            endpoint = row["pheno1"]
+            hits = row["n_gwsig_1"]
+
+            gws_hits[endpoint] = hits
+
+    return gws_hits
 
 
 def build_tree(path_correlations, core_endpoints, threshold):
