@@ -10,15 +10,23 @@ def main():
     path_out_tree = args.output_dir / "endpoint_tree.json"
     path_out_info = args.output_dir / "endpoints_info.json"
 
-    endpoint_tree = build_tree(args.definitions)
-    output_tree(endpoint_tree, path_out_tree)
-
     info = gather_info(
         args.definitions,
         args.metaresults_ukbb,
         args.metaresults_est
     )
     output_info(info, path_out_info)
+
+    core_endpoints = get_core_endpoints(info)
+    tree = build_tree(
+        args.correlations,
+        core_endpoints,
+        args.subset_threshold
+    )
+    output_tree(
+        tree,
+        path_out_tree
+    )
 
 
 def init_cli():
@@ -28,6 +36,19 @@ def init_cli():
         help="path to FinnGen case and control endpoint definitions (CSV)",
         required=True,
         type=Path
+    )
+    parser.add_argument(
+        "-c", "--correlations",
+        help="path to the FinnGen endpoint-endpoint correlations (CSV)",
+        required=True,
+        type=Path
+    )
+    default_threshold = 0.5
+    parser.add_argument(
+        "-t", "--subset-threshold",
+        help=f"threshold value (between 0.0–1.0) to consider a subset between two endpoints (default: {default_threshold})",
+        default=default_threshold,
+        type=float
     )
     parser.add_argument(
         "-u", "--metaresults-ukbb",
@@ -53,69 +74,6 @@ def init_cli():
     return args
 
 
-def build_tree(path_definitions):
-    tree = {}
-
-    def empty():
-        return {
-            "parents": set(),
-            "children": set()
-        }
-
-    with open(path_definitions) as fd:
-        reader = csv.DictReader(fd)
-
-        for row in reader:
-            endpoint = row["NAME"]
-            include = split(row["INCLUDE"], "|")
-
-            data = tree.get(endpoint, empty())
-
-            updated_children = include.union(data["children"])
-
-            # Go through each included endpoint to mark the current one as parent
-            for child in include:
-                child_data = tree.get(child, empty())
-                updated_parents = set([endpoint]).union(child_data["parents"])
-                tree[child] = {
-                    "parents": updated_parents,
-                    "children": child_data["children"]
-                }
-
-
-            tree[endpoint] = {
-                "parents": data["parents"],
-                "children": updated_children
-            }
-
-    return tree
-
-
-def split(text, delimiter):
-    """Custom text splitting returning empty set instead of [""]."""
-    elements = text.split(delimiter)
-
-    if elements == [""]:
-        return set()
-    else:
-        return set(elements)
-
-
-def output_tree(tree, path):
-    out = {}
-
-    for endpoint, data in tree.items():
-        parents = list(data["parents"])
-        children = list(data["children"])
-        out[endpoint] = {
-            "parents": parents,
-            "children": children
-        }
-
-    with open(path, "x") as fd:
-        json.dump(out, fd)
-
-
 def gather_info(path_definitions, path_meta_ukbb, path_meta_est):
     endpoints = {}
 
@@ -134,7 +92,6 @@ def gather_info(path_definitions, path_meta_ukbb, path_meta_est):
                 "uk_meta_analysed": "no",
                 "est_meta_analysed": "no"
             }
-
 
     set_meta_analysis(endpoints, "uk_meta_analysed", path_meta_ukbb)
     set_meta_analysis(endpoints, "est_meta_analysed", path_meta_est)
@@ -155,6 +112,63 @@ def output_info(data, path):
     with open(path, "x") as fd:
         values = list(data.values())
         json.dump(values, fd)
+
+
+def get_core_endpoints(info):
+    cores = set()
+
+    for endpoint, data in info.items():
+        if data["core_endpoint"] == "yes":
+            cores.add(endpoint)
+
+    return cores
+
+
+def build_tree(path_correlations, core_endpoints, threshold):
+    tree = []
+
+    with open(path_correlations) as fd:
+        reader = csv.DictReader(fd)
+
+        for row in reader:
+            if row["endpoint_a"] == row["endpoint_b"]:
+                continue
+
+            if not row["endpoint_a"] in core_endpoints:
+                continue
+
+            if not row["endpoint_b"] in core_endpoints:
+                continue
+
+            parent = row["endpoint_a"]
+            child = row["endpoint_b"]
+            ratio_shared_of_b = float(row["ratio_shared_of_b"])
+            case_overlap = float(row["case_overlap_percent"])
+
+            # Check if B is a complete subset of A
+            if ratio_shared_of_b == 1.0:
+                tree.append({
+                    "parent": parent,
+                    "child": child,
+                    "subsets": True,
+                    "case_overlap": case_overlap
+                })
+
+            # Check if B is a "partial subset" of A
+            elif case_overlap >= threshold:
+                tree.append({
+                    "parent": parent,
+                    "child": child,
+                    "subsets": False,
+                    "case_overlap": case_overlap
+                })
+
+    return tree
+
+
+def output_tree(tree, path):
+    with open(path, "x") as fd:
+        json.dump(tree, fd)
 
 
 if __name__ == "__main__":
