@@ -1,16 +1,20 @@
 import argparse
 import csv
 import json
+import sys
 from math import isnan
 from pathlib import Path
 
 
 def main():
+    log_info("hello.")
     args = init_cli()
 
     path_out_tree = args.output_dir / "endpoint_tree.json"
     path_out_info = args.output_dir / "endpoints_info.json"
+    path_out_code_cases = args.output_dir / "endpoint_code_cases.json"
 
+    log_info("gathering info for all endpoints")
     info = gather_info(
         args.definitions,
         args.basic_stats,
@@ -20,6 +24,7 @@ def main():
     )
     output_info(info, path_out_info)
 
+    log_info("building endpoint tree from case overlap for core endpoints")
     core_endpoints = get_core_endpoints(info)
     tree = build_tree(
         args.correlations,
@@ -30,6 +35,17 @@ def main():
         tree,
         path_out_tree
     )
+
+    log_info("finding N cases / registry-code / endpoint")
+    code_dir = args.upset_plots / "name_tables_json"
+    code_cases = find_code_cases(code_dir)
+    output_code_cases(code_cases, path_out_code_cases)
+
+    log_info("bye.")
+
+
+def log_info(message):
+    print(f"INFO {message}", file=sys.stderr)
 
 
 def init_cli():
@@ -74,6 +90,12 @@ def init_cli():
     parser.add_argument(
         "-g", "--genetic-correlations",
         help="path to the FinnGen genetic correlations (CSV)",
+        required=True,
+        type=Path
+    )
+    parser.add_argument(
+        "--upset-plots",
+        help="path to the FinnGen upset plots directory",
         required=True,
         type=Path
     )
@@ -229,6 +251,34 @@ def build_tree(path_correlations, core_endpoints, threshold):
 def output_tree(tree, path):
     with open(path, "x") as fd:
         json.dump(tree, fd)
+
+
+def find_code_cases(path):
+    out = {}
+
+    data_files = path.glob("name_table_*.json")
+
+    for fpath in data_files:
+        with open(fpath) as fd:
+            data = json.load(fd)
+
+        endpoint = fpath.name.lstrip("name_table_").rstrip(".json")
+
+        code_cases = {}
+        for record in data:
+            code = record["Tag"]
+            ncases = record["Frequency_people"]
+
+            code_cases[code] = ncases
+
+        out[endpoint] = code_cases
+
+    return out
+
+
+def output_code_cases(data, path):
+    with open(path, "x") as fd:
+        json.dump(data, fd)
 
 
 if __name__ == "__main__":
