@@ -2,17 +2,21 @@ import argparse
 import csv
 import json
 import sys
+from datetime import date
 from math import isnan
 from pathlib import Path
+
+
+DATASET_NAME = "FG_pheno-r10_geno-r9"  # will be used to name output files
 
 
 def main():
     log_info("hello.")
     args = init_cli()
 
-    path_out_tree = args.output_dir / "endpoint_tree.json"
-    path_out_info = args.output_dir / "endpoints_info.json"
-    path_out_code_cases = args.output_dir / "endpoint_code_cases.json"
+    path_out_tree = name_output(args.output_dir / "endpoint_tree")
+    path_out_info = name_output(args.output_dir / "endpoints_info")
+    path_out_code_cases = name_output(args.output_dir / "endpoint_code_cases")
 
     log_info("gathering info for all endpoints")
     info = gather_info(
@@ -109,6 +113,10 @@ def init_cli():
     args = parser.parse_args()
 
     return args
+
+
+def name_output(base_name):
+    return f"{base_name}__{DATASET_NAME}__{date.today()}.json"
 
 
 def gather_info(
@@ -268,6 +276,9 @@ def find_code_cases(path):
         for record in data:
             code = record["Tag"]
             ncases = record["Frequency_people"]
+
+            assert ncases == "<5" or int(ncases) == 0  or int(ncases) >= 5, \
+                f"FAIL individual-level data detected: {ncases=} for {endpoint=} in {code=}"
 
             code_cases[code] = ncases
 
