@@ -28,11 +28,9 @@ def main():
     )
     output_info(info, path_out_info)
 
-    log_info("building endpoint tree from case overlap for core endpoints")
-    core_endpoints = get_core_endpoints(info)
+    log_info("building endpoint tree from case overlap")
     tree = build_tree(
         args.correlations,
-        core_endpoints,
         args.subset_threshold
     )
     output_tree(
@@ -190,15 +188,6 @@ def output_info(data, path):
         json.dump(values, fd)
 
 
-def get_core_endpoints(info):
-    cores = set()
-
-    for endpoint, data in info.items():
-        if data["core_endpoint"] == "yes":
-            cores.add(endpoint)
-
-    return cores
-
 def get_gws_hits(path):
     gws_hits = {}
 
@@ -214,7 +203,7 @@ def get_gws_hits(path):
     return gws_hits
 
 
-def build_tree(path_correlations, core_endpoints, threshold):
+def build_tree(path_correlations, threshold):
     tree = []
 
     with open(path_correlations) as fd:
@@ -222,12 +211,6 @@ def build_tree(path_correlations, core_endpoints, threshold):
 
         for row in reader:
             if row["endpoint_a"] == row["endpoint_b"]:
-                continue
-
-            if not row["endpoint_a"] in core_endpoints:
-                continue
-
-            if not row["endpoint_b"] in core_endpoints:
                 continue
 
             parent = row["endpoint_a"]
