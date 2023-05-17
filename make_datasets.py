@@ -216,7 +216,7 @@ def build_tree(path_correlations, threshold):
             parent = row["endpoint_a"]
             child = row["endpoint_b"]
             ratio_shared_of_b = float(row["ratio_shared_of_b"])
-            case_overlap = float(row["case_overlap_percent"])
+            case_overlap = float(row["jaccard_index"])
 
             # Check if B is a complete subset of A
             if ratio_shared_of_b == 1.0:
